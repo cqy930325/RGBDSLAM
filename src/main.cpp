@@ -10,23 +10,34 @@
 
 #include "PointCloud.hpp"
 #include "constant.h"
+#include "FrameMatcher.hpp"
 
 int main(int argc, char *argv[])
 {
-    cv::Mat rgb, depth;
+    /*
+     *cv::Mat rgb, depth;
+     *rgb = cv::imread("../data/rgb1.png");
+     *depth = cv::imread("../data/depth1.png", -1);
+     *PointCloud cloud;
+     *cloud.addImage(rgb, depth);
+     *pcl::visualization::PCLVisualizer viz;
+     *viz.addPointCloud(cloud.getCloud());
+     *viz.spin();
+     */
+    FrameMatcher fm;
+    frame_t f1;
+    frame_t f2;
+    f1.rgb = cv::imread("../data/rgb1.png");
+    f1.depth = cv::imread("../data/depth1.png");
+    f2.rgb = cv::imread("../data/rgb2.png");
+    f2.depth = cv::imread("../data/depth2.png");
 
-    rgb = cv::imread("../data/rgb1.png");
-    depth = cv::imread("../data/depth1.png", -1);
-    //namedWindow( "Display window", cv::WINDOW_AUTOSIZE );// Create a window for display.
-    //imshow( "Display window", rgb );      
-    PointCloud cloud;
+    fm.updateFrame(f1, nullptr, true);
 
-    cloud.addImage(rgb, depth);
+    virtual_odo_t vo;
+    fm.updateFrame(f2, &vo, false);
 
-    pcl::visualization::PCLVisualizer viz;
-    //cv::waitKey(0); 
-    //cloud.saveCloud("../data/pc.pcd");
-    viz.addPointCloud(cloud.getCloud());
-    viz.spin();
+    std::cout<<"rvec"<<vo.rvec<<std::endl;
+    std::cout<<"tvec"<<vo.tvec<<std::endl;
     return 0;
 }
