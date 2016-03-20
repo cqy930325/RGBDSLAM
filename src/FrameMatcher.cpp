@@ -1,11 +1,15 @@
 #include "FrameMatcher.hpp"
-#include "constant.h"
 
 FrameMatcher::FrameMatcher(){
     //TODO
-    detector = new cv::OrbFeatureDetector(150, 1.0f, 2, 10, 0, 2, 0, 10);
+    detector = new cv::OrbFeatureDetector(500, 1.0f, 2, 10, 0, 2, 0, 10);
     descriptor = new cv::OrbDescriptorExtractor();
     matcher = new cv::BFMatcher();
+    /*
+     *detector = new cv::SiftFeatureDetector();
+     *descriptor = new cv::SiftDescriptorExtractor(); 
+     *matcher = new cv::FlannBasedMatcher();
+     */
 }
 
 FrameMatcher::~FrameMatcher(){
@@ -16,11 +20,24 @@ void FrameMatcher::processFrame(frame_t &new_frame){
     descriptor->compute(new_frame.rgb, new_frame.kp, new_frame.desp);  
 }
 
+void FrameMatcher::convertToTMat(tmat_t* T, match_result_t *result){
+    cv::Mat R;
+    cv::Rodrigues(result->rvec, R);
+    Eigen::Matrix3d r;
+    cv::cv2eigen(R, r);
+    *T = Eigen::Isometry3d::Identity();
+    Eigen::AngleAxisd angle(r);
+    //Eigen::Translation<double,3> trans(result->tvec.at<double>(0,0), result->tvec.at<double>(0,1), result->tvec.at<double>(0,2));
+    *T = angle;
+    (*T)(0,3) = result->tvec.at<double>(0,0); 
+    (*T)(1,3) = result->tvec.at<double>(0,1); 
+    (*T)(2,3) = result->tvec.at<double>(0,2);
+}
 
-void FrameMatcher::updateFrame(frame_t &new_frame, virtual_odo_t* vo, bool init){
+void FrameMatcher::matchFrame(frame_t &new_frame, match_result_t *result, bool init){
     processFrame(new_frame);
     if(init){
-        current_frame = new_frame;
+        updateFrame(new_frame);
         return;
     }
     std::vector<cv::DMatch> matches;
@@ -38,13 +55,16 @@ void FrameMatcher::updateFrame(frame_t &new_frame, virtual_odo_t* vo, bool init)
             good_matches.push_back(matches[i]);
         }
     }
-
+    if(good_matches.size() < 10){
+        std::cout<<"too little good match: "<<good_matches.size()<<std::endl;
+        result->inliers = -1;
+        return;
+    }
     std::vector<cv::Point3f> pts_obj;
     std::vector<cv::Point2f> pts_img;
-
     for (size_t i = 0; i < good_matches.size(); ++i) {
         cv::Point2f p = current_frame.kp[good_matches[i].queryIdx].pt;
-        ushort d = current_frame.depth.ptr(int(p.y))[int(p.x)];
+        ushort d = current_frame.depth.ptr<ushort>(int(p.y))[int(p.x)];
         if(d == 0){
             continue;
         }
@@ -64,8 +84,14 @@ void FrameMatcher::updateFrame(frame_t &new_frame, virtual_odo_t* vo, bool init)
     cv::Mat cameraMatrix( 3, 3, CV_64F, camera_matrix_data );
     cv::Mat rvec, tvec, inliers;
     cv::solvePnPRansac( pts_obj, pts_img, cameraMatrix, cv::Mat(), rvec, tvec, false, 100, 1.0, 100, inliers );
-    vo->rvec = rvec;
-    vo->tvec = tvec;
-    vo->inliers = inliers;
+    result->rvec = rvec;
+    result->tvec = tvec;
+    result->inliers = inliers.rows;
 }
 
+void FrameMatcher::updateFrame(frame_t &new_frame){
+    current_frame.rgb = new_frame.rgb.clone();
+    current_frame.depth = new_frame.depth.clone();
+    current_frame.desp = new_frame.desp.clone();
+    current_frame.kp = new_frame.kp;
+}

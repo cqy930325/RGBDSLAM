@@ -1,3 +1,6 @@
+#ifndef FRAME_MATCHER_HPP
+#define FRAME_MATCHER_HPP
+
 #include <iostream>
 #include <vector>
 #include <string>
@@ -8,30 +11,29 @@
 #include <opencv2/nonfree/nonfree.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
 
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 
-struct virtual_odo_t{
-    cv::Mat rvec;
-    cv::Mat tvec;
-    cv::Mat inliers;
-};
-
-struct frame_t{
-    cv::Mat rgb;
-    cv::Mat depth;
-    cv::Mat desp;
-    std::vector<cv::KeyPoint> kp;
-};
-
+#include "constant.h"
 
 class FrameMatcher{
     public:
         FrameMatcher(); //Not Used
         ~FrameMatcher();
-        void updateFrame(frame_t &new_frame, virtual_odo_t* vo, bool init); 
+        void matchFrame(frame_t &new_frame, match_result_t *result, bool init); 
+        void convertToTMat(tmat_t* T, match_result_t *result);
+        void updateFrame(frame_t &new_frame);
         cv::Ptr<cv::OrbFeatureDetector> detector;
         cv::Ptr<cv::OrbDescriptorExtractor> descriptor;
         cv::Ptr<cv::BFMatcher> matcher;
+        /*
+         *cv::Ptr<cv::SiftFeatureDetector> detector;
+         *cv::Ptr<cv::SiftDescriptorExtractor> descriptor;
+         *cv::Ptr<cv::FlannBasedMatcher> matcher;
+         */
     private:
         void processFrame(frame_t &new_frame);
         frame_t current_frame;        
 };
+
+#endif
