@@ -14,5 +14,5 @@ TARGET_LINK_LIBRARIES(FrameMatcher ${OpenCV_LIBS} ${PCL_LIBRARIES} )
 ADD_EXECUTABLE(main main.cpp)
 TARGET_LINK_LIBRARIES(main FrameMatcher PointCloud ${OpenCV_LIBS} ${PCL_LIBRARIES} )
 
-#ADD_EXECUTABLE(frameMatch frameMatch.cpp )
-#TARGET_LINK_LIBRARIES(frameMatch ${OpenCV_LIBS})
+ADD_EXECUTABLE(frameMatch frameMatch.cpp)
+TARGET_LINK_LIBRARIES(frameMatch FrameMatcher PointCloud ${OpenCV_LIBS} ${PCL_LIBRARIES})

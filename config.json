@@ -1,0 +1,19 @@
+{
+    "start_idx": 1,
+    "end_idx": 500,
+    "rgb_path": "./data/rgb_png/",
+    "depth_path": "./data/depth_png/",
+    "min_good_match": 10,
+    "min_inliers": 5,
+    "max_norm": 1.0,
+    "read_bw": 0, 
+    "detector_name": "ORB",
+    "matcher_name": "BruteForce",
+    "camera_matrix": {
+        "fx": 518.0,
+        "fy": 519.0,
+        "cx": 325.5,
+        "cy": 253.5,
+        "scale": 1000
+    }
+}

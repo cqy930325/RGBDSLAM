@@ -16,11 +16,11 @@ class PointCloud{
     public:
         PointCloud();
         ~PointCloud();
-        void addFrame(frame_t &new_frame, tmat_t *T, bool init);
+        void addFrame(frame_t &new_frame, tmat_t *T, camera_param_t *camera, bool init);
         void saveCloud(std::string path); 
         point_cloud_t::Ptr& getCloud();
     private:
-        void image2cloud(frame_t &new_frame, point_cloud_t::Ptr &ret);
+        void image2cloud(frame_t &new_frame, point_cloud_t::Ptr &ret, camera_param_t *camera);
         point_cloud_t::Ptr pc;
 };
 

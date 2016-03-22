@@ -9,10 +9,10 @@ PointCloud::~PointCloud(){
     pc->points.clear();
 }
 
-void PointCloud::addFrame(frame_t &new_frame, tmat_t *T, bool init){
+void PointCloud::addFrame(frame_t &new_frame, tmat_t *T, camera_param_t *camera, bool init){
     point_cloud_t::Ptr new_pc(new point_cloud_t);
     point_cloud_t::Ptr output(new point_cloud_t);
-    image2cloud(new_frame, new_pc);
+    image2cloud(new_frame, new_pc, camera);
     if(!init){
         pcl::transformPointCloud(*pc, *output, T->matrix());
     }
@@ -42,7 +42,7 @@ point_cloud_t::Ptr& PointCloud::getCloud(){
     return pc;
 }
 
-void PointCloud::image2cloud(frame_t &new_frame, point_cloud_t::Ptr& ret){
+void PointCloud::image2cloud(frame_t &new_frame, point_cloud_t::Ptr& ret, camera_param_t *camera){
     int i,j;
     for (i = 0; i < new_frame.depth.rows; ++i) {
         for (j = 0; j < new_frame.depth.cols; ++j) {
@@ -52,9 +52,9 @@ void PointCloud::image2cloud(frame_t &new_frame, point_cloud_t::Ptr& ret){
             }
             //std::cout<<"d: "<<d<<std::endl;
             point_t p;
-            p.z = double(d)/camera_factor;
-            p.x = (j - camera_cx) * p.z / camera_fx;
-            p.y = (i - camera_cy) * p.z / camera_fy;
+            p.z = double(d)/camera->scale;
+            p.x = (j - camera->cx) * p.z / camera->fx;
+            p.y = (i - camera->cy) * p.z / camera->fy;
             p.b = new_frame.rgb.ptr<uchar>(i)[j*3];
             p.g = new_frame.rgb.ptr<uchar>(i)[j*3+1];
             p.r = new_frame.rgb.ptr<uchar>(i)[j*3+2];

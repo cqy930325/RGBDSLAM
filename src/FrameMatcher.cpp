@@ -2,14 +2,25 @@
 
 FrameMatcher::FrameMatcher(){
     //TODO
-    detector = new cv::OrbFeatureDetector(500, 1.0f, 2, 10, 0, 2, 0, 10);
-    descriptor = new cv::OrbDescriptorExtractor();
-    matcher = new cv::BFMatcher();
+    detector = cv::FeatureDetector::create("ORB");
+    descriptor = cv::DescriptorExtractor::create("ORB");
+    matcher = cv::DescriptorMatcher::create("BruteForce");
     /*
-     *detector = new cv::SiftFeatureDetector();
-     *descriptor = new cv::SiftDescriptorExtractor(); 
-     *matcher = new cv::FlannBasedMatcher();
+     *detector = new cv::OrbFeatureDetector(150, 1.0f, 2, 10, 0, 2, 0, 10);
+     *descriptor = new cv::OrbDescriptorExtractor();
+     *matcher = new cv::BFMatcher();
      */
+}
+
+FrameMatcher::FrameMatcher(std::string detector_name, std::string matcher_name){
+    detector = cv::FeatureDetector::create(detector_name);
+    descriptor = cv::DescriptorExtractor::create(detector_name);
+    if(detector_name == "ORB" && matcher_name == "FlannBased"){
+        matcher = new cv::FlannBasedMatcher(new cv::flann::LshIndexParams(20,10,2));
+    }
+    else{
+        matcher = cv::DescriptorMatcher::create(matcher_name);
+    }
 }
 
 FrameMatcher::~FrameMatcher(){
@@ -34,7 +45,7 @@ void FrameMatcher::convertToTMat(tmat_t* T, match_result_t *result){
     (*T)(2,3) = result->tvec.at<double>(0,2);
 }
 
-void FrameMatcher::matchFrame(frame_t &new_frame, match_result_t *result, bool init){
+void FrameMatcher::matchFrame(frame_t &new_frame, match_result_t *result, camera_param_t *camera, bool init){
     processFrame(new_frame);
     if(init){
         updateFrame(new_frame);
@@ -71,14 +82,19 @@ void FrameMatcher::matchFrame(frame_t &new_frame, match_result_t *result, bool i
         pts_img.push_back(cv::Point2f(new_frame.kp[good_matches[i].trainIdx].pt));
         cv::Point3f pt(p.x, p.y, d);
         cv::Point3f pd;
-        pd.z = double(pt.z) / camera_factor;
-        pd.x = (pt.x - camera_cx)*pd.z / camera_fx;
-        pd.y = (pt.y - camera_cy)*pd.z / camera_fy;
+        pd.z = double(pt.z) / camera->scale;
+        pd.x = (pt.x - camera->cx)*pd.z / camera->fx;
+        pd.y = (pt.y - camera->cy)*pd.z / camera->fy;
         pts_obj.push_back(pd);
     }
+    if(pts_obj.size() < 5 || pts_img.size() < 5){
+        std::cout<<"too little pts_obj size: "<<pts_obj.size()<<std::endl;
+        result->inliers = -1;
+        return;
+    }
     double camera_matrix_data[3][3] = {
-        {camera_fx, 0, camera_cx},
-        {0, camera_fy, camera_cy},
+        {camera->fx, 0, camera->cx},
+        {0, camera->fy, camera->cy},
         {0, 0, 1}
     };
     cv::Mat cameraMatrix( 3, 3, CV_64F, camera_matrix_data );
@@ -87,6 +103,8 @@ void FrameMatcher::matchFrame(frame_t &new_frame, match_result_t *result, bool i
     result->rvec = rvec;
     result->tvec = tvec;
     result->inliers = inliers.rows;
+    result->good_matches = good_matches.size();
+    result->features = new_frame.kp.size();
 }
 
 void FrameMatcher::updateFrame(frame_t &new_frame){
