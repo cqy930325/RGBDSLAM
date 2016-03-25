@@ -7,8 +7,8 @@
     "min_inliers": 5,
     "max_norm": 1.0,
     "read_bw": 0, 
-    "detector_name": "ORB",
-    "matcher_name": "BruteForce",
+    "detector_name": "SIFT",
+    "matcher_name": "FlannBased",
     "camera_matrix": {
         "fx": 518.0,
         "fy": 519.0,

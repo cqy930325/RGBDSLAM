@@ -94,6 +94,7 @@ void match(state_t* state, config_t* config, camera_param_t *camera){
 
 int main(int argc, char *argv[])
 {
+    cv::initModule_nonfree();
     config_t config;
     boost::property_tree::ptree pt;
     boost::property_tree::read_json("./config.json", pt);
