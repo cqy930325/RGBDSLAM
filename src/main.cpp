@@ -13,7 +13,6 @@
 
 #include <boost/thread.hpp>
 #include <boost/thread/mutex.hpp>
-#include <boost/chrono/thread_clock.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
 #include "PointCloud.hpp"
@@ -51,14 +50,13 @@ void match(state_t* state, config_t* config, camera_param_t *camera){
         std::cout<<config->read_count<<std::endl;
         frame_t f;
         if(config->read_bw){
-            f.rgb = cv::imread(config->rgb_path+std::to_string(config->read_count)+".png", CV_LOAD_IMAGE_GRAYSCALE);
+            f.rgb = cv::imread(config->rgb_path+boost::lexical_cast<std::string>(config->read_count)+".png", CV_LOAD_IMAGE_GRAYSCALE);
         }
         else{
-            f.rgb = cv::imread(config->rgb_path+std::to_string(config->read_count)+".png");
+            f.rgb = cv::imread(config->rgb_path+boost::lexical_cast<std::string>(config->read_count)+".png");
         }
-        f.depth = cv::imread(config->depth_path+std::to_string(config->read_count)+".png", -1);
+        f.depth = cv::imread(config->depth_path+boost::lexical_cast<std::string>(config->read_count)+".png", -1);
         match_result_t result;
-        boost::chrono::thread_clock::time_point start = boost::chrono::thread_clock::now();
         state->fm->matchFrame(f, &result, camera, false);
         if(result.inliers < config->min_inliers){
             std::cout<<"inlier skip"<<std::endl;
@@ -76,10 +74,7 @@ void match(state_t* state, config_t* config, camera_param_t *camera){
         }
         tmat_t trans;
         state->fm->convertToTMat(&trans, &result);
-        boost::chrono::thread_clock::time_point end = boost::chrono::thread_clock::now();
-        int t = boost::chrono::duration_cast<boost::chrono::milliseconds>(end - start).count();
         state->success_process += 1;
-        state->time_count += (float)t;
         state->r.inliers += result.inliers;
         state->r.good_matches += result.good_matches;
         state->r.features += result.features;
@@ -131,15 +126,15 @@ int main(int argc, char *argv[])
 
     frame_t f1;
     if(config.read_bw){
-        f1.rgb = cv::imread(config.rgb_path+std::to_string(config.read_count)+".png", CV_LOAD_IMAGE_GRAYSCALE);
+        f1.rgb = cv::imread(config.rgb_path+boost::lexical_cast<std::string>(config.read_count)+".png", CV_LOAD_IMAGE_GRAYSCALE);
     }
     else{
-        f1.rgb = cv::imread(config.rgb_path+std::to_string(config.read_count)+".png");
+        f1.rgb = cv::imread(config.rgb_path+boost::lexical_cast<std::string>(config.read_count)+".png");
     }
-    f1.depth = cv::imread(config.depth_path+std::to_string(config.read_count)+".png", -1);
+    f1.depth = cv::imread(config.depth_path+boost::lexical_cast<std::string>(config.read_count)+".png", -1);
     config.read_count++;
-    state.fm->matchFrame(f1, nullptr, &camera, true);
-    state.cloud.addFrame(f1, nullptr, &camera, true);
+    state.fm->matchFrame(f1, NULL, &camera, true);
+    state.cloud.addFrame(f1, NULL, &camera, true);
     
     pcl::visualization::PCLVisualizer viz;
     viz.addPointCloud(state.cloud.getCloud(), "rgbd");
