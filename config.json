@@ -7,7 +7,7 @@
     "min_inliers": 5,
     "max_norm": 1.0,
     "read_bw": 0, 
-    "detector_name": "SIFT",
+    "detector_name": "SURF",
     "matcher_name": "FlannBased",
     "camera_matrix": {
         "fx": 518.0,
