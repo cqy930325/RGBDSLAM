@@ -29,15 +29,14 @@
 
 #include "PointCloud.hpp"
 #include "FrameMatcher.hpp"
-
 typedef g2o::BlockSolver_6_3 BlockSolver;
 typedef g2o::LinearSolverCSparse< BlockSolver::PoseMatrixType > LinearSolver;
-
 struct config_t{
     std::string rgb_path;
     std::string depth_path;
     int min_inliers;
     double max_norm;
+    double min_norm;
     int min_good_match;
     int read_count;
     int end_count;
@@ -84,20 +83,22 @@ void match(g2osolver_t* g2oSolver, state_t* state, config_t* config, camera_para
         f.depth = cv::imread(config->depth_path+boost::lexical_cast<std::string>(config->read_count)+".png", -1);
         match_result_t result;
         state->fm->matchFrame(f, &result, camera, false);
-        if(result.inliers < config->min_inliers){
+        if(result.inliers < config->min_inliers){  //not enough inliers
             std::cout<<"inlier skip"<<std::endl;
             config->read_count++;
             state->cloud_mutex.unlock();
             continue;
         }
         double norm = fabs(std::min(cv::norm(result.rvec), 2*M_PI-cv::norm(result.rvec)))+ fabs(cv::norm(result.tvec));  
-        //std::cout<<"norm: "<<norm<<std::endl;
-        if(norm >= config->max_norm){
+
+        if(norm >= config->max_norm || norm <= config->min_norm){ //move too far or too close
             std::cout<<"norm skip"<<std::endl;
             config->read_count++;
             state->cloud_mutex.unlock();
             continue;
         }
+
+
         tmat_t trans;
         state->fm->convertToTMat(&trans, &result);
         state->success_process += 1;
@@ -111,10 +112,10 @@ void match(g2osolver_t* g2oSolver, state_t* state, config_t* config, camera_para
         g2o::EdgeSE3* edge = new g2o::EdgeSE3();
         edge->vertices()[0] = g2oSolver->globalOptimizer.vertex(lastidx);
         edge->vertices()[1] = g2oSolver->globalOptimizer.vertex(curridx);
-        Eigen::Matrix<double, 6, 6> infoMatrix = Eigen::Matrix<double, 6, 6>::Identity();
-        infoMatrix(0,0) = infoMatrix(1,1) = infoMatrix(2,2) = 100;
-        infoMatrix(3,3) = infoMatrix(4,4) = infoMatrix(6,6) = 100;
-        edge->setInformation(infoMatrix);
+        Eigen::Matrix<double, 6, 6> infomat = Eigen::Matrix< double, 6,6 >::Identity();
+        infomat(0,0) = infomat(1,1) = infomat(2,2) = 100;
+        infomat(3,3) = infomat(4,4) = infomat(5,5) = 100;
+        edge->setInformation(infomat);
         edge->setMeasurement(trans);
         g2oSolver->globalOptimizer.addEdge(edge);
         lastidx = curridx;
@@ -152,6 +153,7 @@ int main(int argc, char *argv[])
     config.min_good_match = pt.get<int>("min_good_match");
     config.min_inliers = pt.get<int>("min_inliers");
     config.max_norm = pt.get<double>("max_norm");
+    config.min_norm = pt.get<double>('min_norm');
     config.read_bw = pt.get<int>("read_bw");
     config.detector_name = pt.get<std::string>("detector_name");
     config.matcher_name = pt.get<std::string>("matcher_name");
@@ -204,7 +206,7 @@ int main(int argc, char *argv[])
     pcl::visualization::PCLVisualizer viz;
     viz.addPointCloud(state.cloud.getCloud(), "rgbd");
 
-    boost::thread matchThread(match, &g2oSolver, &state, &config, &camera);
+    boost::thread matchThread(match, &g2oSolver,&state, &config, &camera);
     matchThread.detach();
 
     while(1){
