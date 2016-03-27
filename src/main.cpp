@@ -29,8 +29,10 @@
 
 #include "PointCloud.hpp"
 #include "FrameMatcher.hpp"
+
 typedef g2o::BlockSolver_6_3 BlockSolver;
 typedef g2o::LinearSolverCSparse< BlockSolver::PoseMatrixType > LinearSolver;
+
 struct config_t{
     std::string rgb_path;
     std::string depth_path;
@@ -61,7 +63,7 @@ struct g2osolver_t{
 
 };
 
-void match(g2osolver_t g2oSolver, state_t* state, config_t* config, camera_param_t *camera){
+void match(g2osolver_t* g2oSolver, state_t* state, config_t* config, camera_param_t *camera){
     int curridx = config->read_count;
     int lastidx = curridx;
     while(1){
@@ -105,16 +107,16 @@ void match(g2osolver_t g2oSolver, state_t* state, config_t* config, camera_param
         g2o::VertexSE3 *v = new g2o::VertexSE3();
         v->setId(config->read_count);
         v->setEstimate(Eigen::Isometry3d::Identity());
-        g2oSolver.globalOptimizer.addVertex(v);
+        g2oSolver->globalOptimizer.addVertex(v);
         g2o::EdgeSE3* edge = new g2o::EdgeSE3();
-        edge->vertices()[0] = g2oSolver.globalOptimizer.vertex(lastidx);
-        edge->vertices()[1] = g2oSovler.globalOptimizer.vertex(curridx);
+        edge->vertices()[0] = g2oSolver->globalOptimizer.vertex(lastidx);
+        edge->vertices()[1] = g2oSolver->globalOptimizer.vertex(curridx);
         Eigen::Matrix<double, 6, 6> infoMatrix = Eigen::Matrix<double, 6, 6>::Identity();
         infoMatrix(0,0) = infoMatrix(1,1) = infoMatrix(2,2) = 100;
         infoMatrix(3,3) = infoMatrix(4,4) = infoMatrix(6,6) = 100;
         edge->setInformation(infoMatrix);
         edge->setMeasurement(trans);
-        g2oSolver.globalOptimizer.addEdge(edge);
+        g2oSolver->globalOptimizer.addEdge(edge);
         lastidx = curridx;
         std::cout<<"average process time:"<<state->time_count/state->success_process<<std::endl;
         std::cout<<"average process features:"<<((float)state->r.features)/state->success_process<<std::endl;
@@ -127,13 +129,13 @@ void match(g2osolver_t g2oSolver, state_t* state, config_t* config, camera_param
         //std::cout<<"leave"<<std::endl;
         state->cloud_mutex.unlock();
     }
-    cout<<"optimizing pose graph, vertices: "<<globalOptimizer.vertices().size()<<endl;
-    g2oSolver.globalOptimizer.save("./data/result_before.g2o");
-    g2oSolver.globalOptimizer.initializeOptimization();
-    g2oSolver.globalOptimizer.optimize( 100 ); //可以指定优化步数
-    g2oSolver.globalOptimizer.save( "./data/result_after.g2o" );
+    cout<<"optimizing pose graph, vertices: "<<g2oSolver->globalOptimizer.vertices().size()<<endl;
+    g2oSolver->globalOptimizer.save("./data/result_before.g2o");
+    g2oSolver->globalOptimizer.initializeOptimization();
+    g2oSolver->globalOptimizer.optimize( 100 ); //可以指定优化步数
+    g2oSolver->globalOptimizer.save( "./data/result_after.g2o" );
     cout<<"Optimization done."<<endl;
-    g2oSolver.globalOptimizer.clear();
+    g2oSolver->globalOptimizer.clear();
 }
 
 
@@ -167,9 +169,9 @@ int main(int argc, char *argv[])
 
     g2oSolver.lSolver = new LinearSolver();
     g2oSolver.lSolver->setBlockOrdering(false);
-    g2oSolver.bSolver = new BlockSolver(lSolver);
-    g2oSolver.solver = new g2o::OptimizationAlgorithmLevenberg(bSolver);
-    g2oSolver.globalOptimizer.setAlgorithm(solver);
+    g2oSolver.bSolver = new BlockSolver(g2oSolver.lSolver);
+    g2oSolver.solver = new g2o::OptimizationAlgorithmLevenberg(g2oSolver.bSolver);
+    g2oSolver.globalOptimizer.setAlgorithm(g2oSolver.solver);
     g2oSolver.globalOptimizer.setVerbose(false);
 
     state_t state;
@@ -191,7 +193,7 @@ int main(int argc, char *argv[])
     state.fm->matchFrame(f1, NULL, &camera, true);
     state.cloud.addFrame(f1, NULL, &camera, true);
     g2o::VertexSE3* v = new g2o::VertexSE3();
-    v->setId = config.read_count;
+    v->setId(config.read_count);
     v->setEstimate(Eigen::Isometry3d::Identity());
     v->setFixed(true);
     g2oSolver.globalOptimizer.addVertex(v);
@@ -202,7 +204,7 @@ int main(int argc, char *argv[])
     pcl::visualization::PCLVisualizer viz;
     viz.addPointCloud(state.cloud.getCloud(), "rgbd");
 
-    boost::thread matchThread(match, &state, &config, &camera);
+    boost::thread matchThread(match, &g2oSolver, &state, &config, &camera);
     matchThread.detach();
 
     while(1){
