@@ -31,6 +31,7 @@
  */
 
 struct frame_t{
+    int id;
     cv::Mat rgb;
     cv::Mat depth;
     cv::Mat desp;

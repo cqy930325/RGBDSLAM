@@ -29,18 +29,24 @@
 
 #include "PointCloud.hpp"
 #include "FrameMatcher.hpp"
+
 typedef g2o::BlockSolver_6_3 BlockSolver;
 typedef g2o::LinearSolverCSparse< BlockSolver::PoseMatrixType > LinearSolver;
+
 struct config_t{
     std::string rgb_path;
     std::string depth_path;
     int min_inliers;
     double max_norm;
+    double max_norm_lp;
     double min_norm;
     int min_good_match;
     int read_count;
     int end_count;
+    int nearby_loops;
+    int random_loops;
     int read_bw;
+    int check_loop;
     std::string detector_name;
     std::string matcher_name;
 };
@@ -52,6 +58,7 @@ struct state_t{
     float time_count;
     int success_process;
     match_result_t r;
+    std::vector<frame_t> key_frames;
 };
 
 struct g2osolver_t{
@@ -59,20 +66,88 @@ struct g2osolver_t{
     BlockSolver* bSolver;
     g2o::OptimizationAlgorithmLevenberg* solver;
     g2o::SparseOptimizer globalOptimizer;
-
 };
 
-void match(g2osolver_t* g2oSolver, state_t* state, config_t* config, camera_param_t *camera){
-    int curridx = config->read_count;
-    int lastidx = curridx;
+
+bool checkKeyFrame(g2osolver_t* g2oSolver, state_t* state, frame_t& f1, frame_t &f2, config_t* config, camera_param_t *camera, bool is_loop);
+
+void check_loops(g2osolver_t* g2oSolver, state_t* state, config_t* config, camera_param_t *camera, frame_t& f){
+    if(state->key_frames.size() <= config->nearby_loops){
+        for(size_t i=0; i<state->key_frames.size(); ++i){
+            checkKeyFrame(g2oSolver, state, state->key_frames[i], f, config, camera, true);
+        }
+    }
+    else{
+        srand( (unsigned int) time(NULL) );
+        for(size_t i=(state->key_frames.size()-config->nearby_loops); i<state->key_frames.size(); ++i){
+            checkKeyFrame(g2oSolver, state, state->key_frames[i], f, config, camera, true);
+        }
+        for (int i=0; i<config->random_loops; i++)
+        {
+            int index = rand()%state->key_frames.size();
+            checkKeyFrame(g2oSolver, state, state->key_frames[index], f, config, camera, true);
+        }
+    }
+}
+
+
+bool checkKeyFrame(g2osolver_t* g2oSolver, state_t* state, frame_t& f1, frame_t &f2, config_t* config, camera_param_t *camera, bool is_loop){
+    std::cout<<config->read_count<<" "<<f2.id<<std::endl;
+    match_result_t result;
+    state->fm->matchFrame(f1, f2, &result, camera);
+    if(result.inliers < config->min_inliers){  //not enough inliers
+        std::cout<<"inlier skip"<<std::endl;
+        return false;
+    }
+    double norm = fabs(std::min(cv::norm(result.rvec), 2*M_PI-cv::norm(result.rvec)))+ fabs(cv::norm(result.tvec));  
+    if(!is_loop){
+        if(norm >= config->max_norm){
+            std::cout<<"too far"<<std::endl;
+            return false;
+        }
+    }
+    else{
+        if(norm >= config->max_norm_lp){
+            std::cout<<"too far loop"<<std::endl;
+            return false;
+        }
+    }
+    if(norm <= config->min_norm){ //move too far or too close
+        std::cout<<"too close"<<std::endl;
+        return false;
+    }
+    if(!is_loop){
+        g2o::VertexSE3 *v = new g2o::VertexSE3();
+        v->setId(f2.id);
+        v->setEstimate(Eigen::Isometry3d::Identity());
+        g2oSolver->globalOptimizer.addVertex(v);
+    }
+    tmat_t trans;
+    state->fm->convertToTMat(&trans, &result);
+    if(config->check_loop){
+        g2o::EdgeSE3* edge = new g2o::EdgeSE3();
+        edge->vertices()[0] = g2oSolver->globalOptimizer.vertex(f1.id);
+        edge->vertices()[1] = g2oSolver->globalOptimizer.vertex(f2.id);
+        Eigen::Matrix<double, 6, 6> infomat = Eigen::Matrix< double, 6,6 >::Identity();
+        infomat(0,0) = infomat(1,1) = infomat(2,2) = 100;
+        infomat(3,3) = infomat(4,4) = infomat(5,5) = 100;
+        edge->setInformation(infomat);
+        edge->setMeasurement(trans);
+        g2oSolver->globalOptimizer.addEdge(edge);
+    }
+    else{
+        state->cloud.addFrame(f2, &trans, camera, false);
+    }
+    return true;
+}
+
+void process(g2osolver_t* g2oSolver, state_t* state, config_t* config, camera_param_t *camera){
     while(1){
-        curridx = config->read_count;
         state->cloud_mutex.lock();
         if(config->read_count > config->end_count){
             state->cloud_mutex.unlock();
             break;
         }
-        std::cout<<config->read_count<<std::endl;
         frame_t f;
         if(config->read_bw){
             f.rgb = cv::imread(config->rgb_path+boost::lexical_cast<std::string>(config->read_count)+".png", CV_LOAD_IMAGE_GRAYSCALE);
@@ -81,62 +156,42 @@ void match(g2osolver_t* g2oSolver, state_t* state, config_t* config, camera_para
             f.rgb = cv::imread(config->rgb_path+boost::lexical_cast<std::string>(config->read_count)+".png");
         }
         f.depth = cv::imread(config->depth_path+boost::lexical_cast<std::string>(config->read_count)+".png", -1);
-        match_result_t result;
-        state->fm->matchFrame(f, &result, camera, false);
-        if(result.inliers < config->min_inliers){  //not enough inliers
-            std::cout<<"inlier skip"<<std::endl;
-            config->read_count++;
-            state->cloud_mutex.unlock();
-            continue;
-        }
-        double norm = fabs(std::min(cv::norm(result.rvec), 2*M_PI-cv::norm(result.rvec)))+ fabs(cv::norm(result.tvec));  
-
-        if(norm >= config->max_norm || norm <= config->min_norm){ //move too far or too close
-            std::cout<<"norm skip"<<std::endl;
-            config->read_count++;
-            state->cloud_mutex.unlock();
-            continue;
-        }
-
-
-        tmat_t trans;
-        state->fm->convertToTMat(&trans, &result);
-        state->success_process += 1;
-        state->r.inliers += result.inliers;
-        state->r.good_matches += result.good_matches;
-        state->r.features += result.features;
-        g2o::VertexSE3 *v = new g2o::VertexSE3();
-        v->setId(config->read_count);
-        v->setEstimate(Eigen::Isometry3d::Identity());
-        g2oSolver->globalOptimizer.addVertex(v);
-        g2o::EdgeSE3* edge = new g2o::EdgeSE3();
-        edge->vertices()[0] = g2oSolver->globalOptimizer.vertex(lastidx);
-        edge->vertices()[1] = g2oSolver->globalOptimizer.vertex(curridx);
-        Eigen::Matrix<double, 6, 6> infomat = Eigen::Matrix< double, 6,6 >::Identity();
-        infomat(0,0) = infomat(1,1) = infomat(2,2) = 100;
-        infomat(3,3) = infomat(4,4) = infomat(5,5) = 100;
-        edge->setInformation(infomat);
-        edge->setMeasurement(trans);
-        g2oSolver->globalOptimizer.addEdge(edge);
-        lastidx = curridx;
-        std::cout<<"average process time:"<<state->time_count/state->success_process<<std::endl;
-        std::cout<<"average process features:"<<((float)state->r.features)/state->success_process<<std::endl;
-        std::cout<<"average process inliers:"<<((float)state->r.inliers)/state->success_process<<std::endl;
-        std::cout<<"average process good_matches:"<<((float)state->r.good_matches)/state->success_process<<std::endl;
-        //std::cout<<"T = "<<trans.matrix()<<std::endl;
-        state->cloud.addFrame(f, &trans, camera, false);
-        state->fm->updateFrame(f);
+        f.id = config->read_count;
         config->read_count++;
-        //std::cout<<"leave"<<std::endl;
+        bool is_key_frame = checkKeyFrame(g2oSolver, state, state->key_frames.back(), f, config, camera, false);
+        if(config->check_loop && is_key_frame){
+            check_loops(g2oSolver, state, config, camera, f);
+            state->key_frames.push_back(f);
+            /*
+             *state->success_process += 1;
+             *state->r.inliers += result.inliers;
+             *state->r.good_matches += result.good_matches;
+             *state->r.features += result.features;
+             */
+            /*
+             *std::cout<<"average process time:"<<state->time_count/state->success_process<<std::endl;
+             *std::cout<<"average process features:"<<((float)state->r.features)/state->success_process<<std::endl;
+             *std::cout<<"average process inliers:"<<((float)state->r.inliers)/state->success_process<<std::endl;
+             *std::cout<<"average process good_matches:"<<((float)state->r.good_matches)/state->success_process<<std::endl;
+             */
+            //std::cout<<"T = "<<trans.matrix()<<std::endl;
+            g2oSolver->globalOptimizer.optimize(30, true);
+            g2o::VertexSE3* vertex = dynamic_cast<g2o::VertexSE3*>(g2oSolver->globalOptimizer.vertex(state->key_frames.back().id));
+            tmat_t cloud_trans = vertex->estimate();
+            state->cloud.addFrame(state->key_frames.back(), &cloud_trans, camera, false);
+            //std::cout<<"leave"<<std::endl;
+        }
         state->cloud_mutex.unlock();
     }
-    cout<<"optimizing pose graph, vertices: "<<g2oSolver->globalOptimizer.vertices().size()<<endl;
-    g2oSolver->globalOptimizer.save("./data/result_before.g2o");
-    g2oSolver->globalOptimizer.initializeOptimization();
-    g2oSolver->globalOptimizer.optimize( 100 ); //可以指定优化步数
-    g2oSolver->globalOptimizer.save( "./data/result_after.g2o" );
-    cout<<"Optimization done."<<endl;
-    g2oSolver->globalOptimizer.clear();
+    /*
+     *cout<<"optimizing pose graph, vertices: "<<g2oSolver->globalOptimizer.vertices().size()<<endl;
+     *g2oSolver->globalOptimizer.save("./data/result_online.g2o");
+     *g2oSolver->globalOptimizer.initializeOptimization();
+     *g2oSolver->globalOptimizer.optimize(100, false); 
+     *g2oSolver->globalOptimizer.save( "./data/result_after.g2o" );
+     *cout<<"Optimization done."<<endl;
+     *g2oSolver->globalOptimizer.clear();
+     */
 }
 
 
@@ -153,11 +208,15 @@ int main(int argc, char *argv[])
     config.min_good_match = pt.get<int>("min_good_match");
     config.min_inliers = pt.get<int>("min_inliers");
     config.max_norm = pt.get<double>("max_norm");
-    config.min_norm = pt.get<double>('min_norm');
+    config.max_norm_lp = pt.get<double>("max_norm_lp");
+    config.min_norm = pt.get<double>("min_norm");
+    config.nearby_loops = pt.get<int>("nearby_loops");
+    config.random_loops = pt.get<int>("random_loops");
     config.read_bw = pt.get<int>("read_bw");
     config.detector_name = pt.get<std::string>("detector_name");
     config.matcher_name = pt.get<std::string>("matcher_name");
-   
+    config.check_loop = pt.get<int>("check_loop");
+
     camera_param_t camera;
     boost::property_tree::ptree cam = pt.get_child("camera_matrix"); 
     camera.fx = cam.get<double>("fx");
@@ -192,22 +251,23 @@ int main(int argc, char *argv[])
         f1.rgb = cv::imread(config.rgb_path+boost::lexical_cast<std::string>(config.read_count)+".png");
     }
     f1.depth = cv::imread(config.depth_path+boost::lexical_cast<std::string>(config.read_count)+".png", -1);
-    state.fm->matchFrame(f1, NULL, &camera, true);
-    state.cloud.addFrame(f1, NULL, &camera, true);
-    g2o::VertexSE3* v = new g2o::VertexSE3();
-    v->setId(config.read_count);
-    v->setEstimate(Eigen::Isometry3d::Identity());
-    v->setFixed(true);
-    g2oSolver.globalOptimizer.addVertex(v);
-    int lastIndex = config.read_count;
+    f1.id = config.read_count;
     config.read_count++;
-
-
+    state.key_frames.push_back(f1);
+    state.cloud.addFrame(f1, NULL, &camera, true);
+    if(config.check_loop){
+        g2o::VertexSE3* v = new g2o::VertexSE3();
+        v->setId(config.read_count);
+        v->setEstimate(Eigen::Isometry3d::Identity());
+        v->setFixed(true);
+        g2oSolver.globalOptimizer.initializeOptimization();
+        g2oSolver.globalOptimizer.addVertex(v);
+    }
     pcl::visualization::PCLVisualizer viz;
     viz.addPointCloud(state.cloud.getCloud(), "rgbd");
 
-    boost::thread matchThread(match, &g2oSolver,&state, &config, &camera);
-    matchThread.detach();
+    boost::thread processThread(process, &g2oSolver,&state, &config, &camera);
+    processThread.detach();
 
     while(1){
         state.cloud_mutex.lock();
