@@ -1,8 +1,8 @@
 {
     "start_idx": 1,
     "end_idx": 500,
-    "rgb_path": "./data/rgb_png/",
-    "depth_path": "./data/depth_png/",
+    "rgb_path": "./data/rgb/",
+    "depth_path": "./data/depth/",
     "min_good_match": 10,
     "min_inliers": 5,
     "max_norm": 1.0,
