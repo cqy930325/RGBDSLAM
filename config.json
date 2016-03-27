@@ -6,6 +6,8 @@
     "min_good_match": 10,
     "min_inliers": 5,
     "max_norm": 1.0,
+    "max_norm_lp": 5.0,
+    "min_norm": 0.1,
     "read_bw": 0, 
     "detector_name": "SURF",
     "matcher_name": "FlannBased",
@@ -15,5 +17,8 @@
         "cx": 325.5,
         "cy": 253.5,
         "scale": 1000
-    }
+    },
+    "nearby_loops": 5,
+    "random_loops": 5,
+    "check_loop": 1
 }

@@ -45,14 +45,11 @@ void FrameMatcher::convertToTMat(tmat_t* T, match_result_t *result){
     (*T)(2,3) = result->tvec.at<double>(0,2);
 }
 
-void FrameMatcher::matchFrame(frame_t &new_frame, match_result_t *result, camera_param_t *camera, bool init){
-    processFrame(new_frame);
-    if(init){
-        updateFrame(new_frame);
-        return;
-    }
+void FrameMatcher::matchFrame(frame_t &f1, frame_t &f2, match_result_t *result, camera_param_t *camera){
+    processFrame(f1);
+    processFrame(f2);
     std::vector<cv::DMatch> matches;
-    matcher->match(current_frame.desp, new_frame.desp, matches);
+    matcher->match(f1.desp, f2.desp, matches);
     std::vector<cv::DMatch> good_matches;
     double min_dist = std::numeric_limits<double>::max();
     for (size_t i = 0; i < matches.size(); ++i) {
@@ -74,12 +71,12 @@ void FrameMatcher::matchFrame(frame_t &new_frame, match_result_t *result, camera
     std::vector<cv::Point3f> pts_obj;
     std::vector<cv::Point2f> pts_img;
     for (size_t i = 0; i < good_matches.size(); ++i) {
-        cv::Point2f p = current_frame.kp[good_matches[i].queryIdx].pt;
-        ushort d = current_frame.depth.ptr<ushort>(int(p.y))[int(p.x)];
+        cv::Point2f p = f1.kp[good_matches[i].queryIdx].pt;
+        ushort d = f1.depth.ptr<ushort>(int(p.y))[int(p.x)];
         if(d == 0){
             continue;
         }
-        pts_img.push_back(cv::Point2f(new_frame.kp[good_matches[i].trainIdx].pt));
+        pts_img.push_back(cv::Point2f(f2.kp[good_matches[i].trainIdx].pt));
         cv::Point3f pt(p.x, p.y, d);
         cv::Point3f pd;
         pd.z = double(pt.z) / camera->scale;
@@ -104,12 +101,6 @@ void FrameMatcher::matchFrame(frame_t &new_frame, match_result_t *result, camera
     result->tvec = tvec;
     result->inliers = inliers.rows;
     result->good_matches = good_matches.size();
-    result->features = new_frame.kp.size();
+    result->features = f2.kp.size();
 }
 
-void FrameMatcher::updateFrame(frame_t &new_frame){
-    current_frame.rgb = new_frame.rgb.clone();
-    current_frame.depth = new_frame.depth.clone();
-    current_frame.desp = new_frame.desp.clone();
-    current_frame.kp = new_frame.kp;
-}
