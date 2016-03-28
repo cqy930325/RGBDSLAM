@@ -117,8 +117,5 @@ int main(int argc, char *argv[])
     {
         matchesShow.push_back( good_matches[inliers.ptr<int>(i)[0]] );    
     }
-    cv::drawMatches( rgb1, kp1, rgb2, kp2, matchesShow, imgMatches );
-    cv::imshow( "inlier matches", imgMatches );
-    cv::waitKey( 0 ); 
     return 0;
 }

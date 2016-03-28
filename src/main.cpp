@@ -69,9 +69,9 @@ struct g2osolver_t{
 };
 
 
-bool checkKeyFrame(g2osolver_t* g2oSolver, state_t* state, frame_t& f1, frame_t &f2, config_t* config, camera_param_t *camera, bool is_loop);
+bool checkKeyFrame(g2osolver_t& g2oSolver, state_t* state, frame_t& f1, frame_t &f2, config_t* config, camera_param_t *camera, bool is_loop);
 
-void check_loops(g2osolver_t* g2oSolver, state_t* state, config_t* config, camera_param_t *camera, frame_t& f){
+void check_loops(g2osolver_t& g2oSolver, state_t* state, config_t* config, camera_param_t *camera, frame_t& f){
     if(state->key_frames.size() <= config->nearby_loops){
         for(size_t i=0; i<state->key_frames.size(); ++i){
             checkKeyFrame(g2oSolver, state, state->key_frames[i], f, config, camera, true);
@@ -91,10 +91,11 @@ void check_loops(g2osolver_t* g2oSolver, state_t* state, config_t* config, camer
 }
 
 
-bool checkKeyFrame(g2osolver_t* g2oSolver, state_t* state, frame_t& f1, frame_t &f2, config_t* config, camera_param_t *camera, bool is_loop){
+bool checkKeyFrame(g2osolver_t& g2oSolver, state_t* state, frame_t& f1, frame_t &f2, config_t* config, camera_param_t *camera, bool is_loop){
     std::cout<<config->read_count<<" "<<f2.id<<std::endl;
     match_result_t result;
     state->fm->matchFrame(f1, f2, &result, camera);
+    static g2o::RobustKernel* robustKernel = g2o::RobustKernelFactory::instance()->construct( "Cauchy" );
     if(result.inliers < config->min_inliers){  //not enough inliers
         std::cout<<"inlier skip"<<std::endl;
         return false;
@@ -112,41 +113,70 @@ bool checkKeyFrame(g2osolver_t* g2oSolver, state_t* state, frame_t& f1, frame_t 
             return false;
         }
     }
-    if(norm <= config->min_norm){ //move too far or too close
+    if(norm <= config->min_norm && config->check_loop){ //move too far or too close
         std::cout<<"too close"<<std::endl;
         return false;
     }
+    tmat_t trans;
+    state->fm->convertToTMat(&trans, &result);
     if(!is_loop){
+        std::cout<<"new keypoint:"<<f2.id<<std::endl;
         g2o::VertexSE3 *v = new g2o::VertexSE3();
         v->setId(f2.id);
         v->setEstimate(Eigen::Isometry3d::Identity());
-        g2oSolver->globalOptimizer.addVertex(v);
+        g2oSolver.globalOptimizer.addVertex(v);
+        if (state->key_frames.size() == 1){
+            v->setId(1);
+            v->setEstimate(Eigen::Isometry3d::Identity());
+            g2oSolver.globalOptimizer.addVertex(v);
+            g2o::EdgeSE3* edge = new g2o::EdgeSE3();
+            edge->vertices()[0] = g2oSolver.globalOptimizer.vertex(f1.id);
+            edge->vertices()[1] = g2oSolver.globalOptimizer.vertex(f2.id);
+            edge->setRobustKernel(robustKernel);
+            Eigen::Matrix<double, 6, 6> infomat = Eigen::Matrix< double, 6,6 >::Identity();
+            infomat(0,0) = infomat(1,1) = infomat(2,2) = 100;
+            infomat(3,3) = infomat(4,4) = infomat(5,5) = 100;
+            edge->setInformation(infomat);
+            edge->setMeasurement(trans.inverse());
+            std::cout<<"add edge"<<std::endl;
+            g2oSolver.globalOptimizer.addEdge(edge);
+            //g2oSolver.globalOptimizer.initializeOptimization();
+            return true;
+        }
     }
-    tmat_t trans;
-    state->fm->convertToTMat(&trans, &result);
     if(config->check_loop){
         g2o::EdgeSE3* edge = new g2o::EdgeSE3();
-        edge->vertices()[0] = g2oSolver->globalOptimizer.vertex(f1.id);
-        edge->vertices()[1] = g2oSolver->globalOptimizer.vertex(f2.id);
+        //edge->write(std::cout);
+        edge->vertices()[0] = g2oSolver.globalOptimizer.vertex(f1.id);
+        edge->vertices()[1] = g2oSolver.globalOptimizer.vertex(f2.id);
+        //std::cout<<"vertices num:"<<edge->vertices()[1]<<std::endl;
+        //edge->write(std::cout);
+        edge->setRobustKernel(robustKernel);
         Eigen::Matrix<double, 6, 6> infomat = Eigen::Matrix< double, 6,6 >::Identity();
         infomat(0,0) = infomat(1,1) = infomat(2,2) = 100;
         infomat(3,3) = infomat(4,4) = infomat(5,5) = 100;
         edge->setInformation(infomat);
-        edge->setMeasurement(trans);
-        g2oSolver->globalOptimizer.addEdge(edge);
+        //edge->write(std::cout);
+        //std::cout<<"edge info"<<std::endl;
+        edge->setMeasurement(trans.inverse());
+        //edge->write(std::cout);
+        //std::cout<<std::endl;
+        std::cout<<"add edge"<<std::endl;
+        g2oSolver.globalOptimizer.addEdge(edge);
     }
     else{
         state->cloud.addFrame(f2, &trans, camera, false);
+        state->key_frames.push_back(f2);
+        return false;
     }
     return true;
 }
 
-void process(g2osolver_t* g2oSolver, state_t* state, config_t* config, camera_param_t *camera){
-    while(1){
-        state->cloud_mutex.lock();
+void process(g2osolver_t& g2oSolver, state_t* state, config_t* config, camera_param_t *camera){
+    //while(1){
+        //state->cloud_mutex.lock();
         if(config->read_count > config->end_count){
-            state->cloud_mutex.unlock();
-            break;
+            return;
         }
         frame_t f;
         if(config->read_bw){
@@ -160,6 +190,8 @@ void process(g2osolver_t* g2oSolver, state_t* state, config_t* config, camera_pa
         config->read_count++;
         bool is_key_frame = checkKeyFrame(g2oSolver, state, state->key_frames.back(), f, config, camera, false);
         if(config->check_loop && is_key_frame){
+            std::cout<<"Keyframe detect:"<<f.id<<std::endl;
+            std::cout<<"Check loop"<<std::endl;
             check_loops(g2oSolver, state, config, camera, f);
             state->key_frames.push_back(f);
             /*
@@ -175,14 +207,20 @@ void process(g2osolver_t* g2oSolver, state_t* state, config_t* config, camera_pa
              *std::cout<<"average process good_matches:"<<((float)state->r.good_matches)/state->success_process<<std::endl;
              */
             //std::cout<<"T = "<<trans.matrix()<<std::endl;
-            g2oSolver->globalOptimizer.optimize(30, true);
-            g2o::VertexSE3* vertex = dynamic_cast<g2o::VertexSE3*>(g2oSolver->globalOptimizer.vertex(state->key_frames.back().id));
-            tmat_t cloud_trans = vertex->estimate();
-            state->cloud.addFrame(state->key_frames.back(), &cloud_trans, camera, false);
+            /*g2oSolver.globalOptimizer.initializeOptimization();
+            g2oSolver.globalOptimizer.optimize(100);
+
+            state->cloud.pc->clear();
+            for(int i = 0;i<state->key_frames.size();++i){
+                g2o::VertexSE3* vertex = dynamic_cast<g2o::VertexSE3*>(g2oSolver.globalOptimizer.vertex(state->key_frames[i].id));
+                tmat_t cloud_trans = vertex->estimate();
+                state->cloud.addFrame(state->key_frames[i], &cloud_trans, camera, false);
+            }*/
+
             //std::cout<<"leave"<<std::endl;
         }
-        state->cloud_mutex.unlock();
-    }
+        //state->cloud_mutex.unlock();
+    //}
     /*
      *cout<<"optimizing pose graph, vertices: "<<g2oSolver->globalOptimizer.vertices().size()<<endl;
      *g2oSolver->globalOptimizer.save("./data/result_online.g2o");
@@ -252,30 +290,65 @@ int main(int argc, char *argv[])
     }
     f1.depth = cv::imread(config.depth_path+boost::lexical_cast<std::string>(config.read_count)+".png", -1);
     f1.id = config.read_count;
-    config.read_count++;
     state.key_frames.push_back(f1);
     state.cloud.addFrame(f1, NULL, &camera, true);
     if(config.check_loop){
         g2o::VertexSE3* v = new g2o::VertexSE3();
-        v->setId(config.read_count);
+        /*v->setId(config.read_count);
         v->setEstimate(Eigen::Isometry3d::Identity());
         v->setFixed(true);
         g2oSolver.globalOptimizer.initializeOptimization();
+        g2oSolver.globalOptimizer.addVertex(v);*/
+        /*v->setId(2);
+        v->setEstimate(Eigen::Isometry3d::Identity());
+        v->setFixed(true);
         g2oSolver.globalOptimizer.addVertex(v);
+        g2o::EdgeSE3* edge = new g2o::EdgeSE3();
+        edge->write(std::cout);
+        edge->vertices()[0] = g2oSolver.globalOptimizer.vertex(1);
+        edge->vertices()[1] = g2oSolver.globalOptimizer.vertex(2);
+        std::cout<<"vertices num:"<<edge->vertices()[1]<<std::endl;
+        edge->write(std::cout);
+        static g2o::RobustKernel* robustKernel = g2o::RobustKernelFactory::instance()->construct( "Cauchy" );
+        edge->setRobustKernel(robustKernel);
+        Eigen::Matrix<double, 6, 6> infomat = Eigen::Matrix< double, 6,6 >::Identity();
+        infomat(0,0) = infomat(1,1) = infomat(2,2) = 100;
+        infomat(3,3) = infomat(4,4) = infomat(5,5) = 100;
+        edge->setInformation(infomat);
+        edge->write(std::cout);
+        std::cout<<"edge info"<<std::endl;
+        edge->setMeasurement(Eigen::Isometry3d::Identity());
+        edge->write(std::cout);
+        std::cout<<std::endl;
+        std::cout<<"add edge"<<std::endl;
+        g2oSolver.globalOptimizer.addEdge(edge);*/
     }
     pcl::visualization::PCLVisualizer viz;
     viz.addPointCloud(state.cloud.getCloud(), "rgbd");
+    config.read_count++;
 
-    boost::thread processThread(process, &g2oSolver,&state, &config, &camera);
-    processThread.detach();
+    //boost::thread processThread(process, &g2oSolver,&state, &config, &camera);
+    //processThread.detach();
 
-    while(1){
-        state.cloud_mutex.lock();
+    while(config.read_count <= config.end_count){
+        //state.cloud_mutex.lock();
+        process(g2oSolver,&state, &config, &camera);
         viz.updatePointCloud(state.cloud.getCloud(), "rgbd");
         viz.spinOnce(100);
-        state.cloud_mutex.unlock();
-        boost::this_thread::sleep(boost::posix_time::microseconds(100000));
+        //state.cloud_mutex.unlock();
+        //boost::this_thread::sleep(boost::posix_time::microseconds(100000));
     }
+    g2oSolver.globalOptimizer.initializeOptimization();
+    g2oSolver.globalOptimizer.optimize(100);
+
+    state.cloud.pc->clear();
+    for(int i = 0;i<state.key_frames.size();++i){
+        g2o::VertexSE3* vertex = dynamic_cast<g2o::VertexSE3*>(g2oSolver.globalOptimizer.vertex(state.key_frames[i].id));
+        tmat_t cloud_trans = vertex->estimate();
+        state.cloud.addFrame(state.key_frames[i], &cloud_trans, &camera, false);
+    }
+    viz.updatePointCloud(state.cloud.getCloud(), "rgbd");
+    viz.spin();
     delete state.fm;
     return 0;
 }
