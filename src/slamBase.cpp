@@ -26,7 +26,7 @@ PointCloud::Ptr image2PointCloud( cv::Mat& rgb, cv::Mat& depth, CAMERA_INTRINSIC
             // 计算这个点的空间坐标
             p.z = double(d) / camera.scale;
             p.x = (n - camera.cx) * p.z / camera.fx;
-            p.y = -(m - camera.cy) * p.z / camera.fy;
+            p.y = (m - camera.cy) * p.z / camera.fy;
             
             // 从rgb图像中获取它的颜色
             // rgb是三通道的BGR格式图，所以按下面的顺序获取颜色

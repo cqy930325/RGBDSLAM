@@ -34,7 +34,7 @@ using namespace std;
 #include <pcl/filters/voxel_grid.h>
 
 // 类型定义
-typedef pcl::PointXYZRGBA PointT;
+typedef pcl::PointXYZRGB PointT;
 typedef pcl::PointCloud<PointT> PointCloud;
 
 // 相机内参结构

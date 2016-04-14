@@ -40,3 +40,8 @@ TARGET_LINK_LIBRARIES( slam
     ${PCL_LIBRARIES}
     ${OCTOMAP_LIBRARIES}
     g2o_core g2o_types_slam3d g2o_solver_csparse g2o_stuff g2o_csparse_extension ${CSPARSE_LIBRARY})
+ADD_EXECUTABLE( joinPointCloud joinPointCloud.cpp)
+TARGET_LINK_LIBRARIES( joinPointCloud
+    slambase
+    ${OpenCV_LIBS} 
+    ${PCL_LIBRARIES} )
